@@ -7,6 +7,7 @@
 #include "mouse.h"
 #include "deadbeef_rand.h"
 #include "keypress.h"
+#include "physicalkey.h"
 #include "screen.h"
 #include "screengrab.h"
 #include "MMBitmap.h"
@@ -20,6 +21,7 @@
 #endif
 #if defined(USE_X11)
 	#include "xdisplay.h"
+	#include <X11/XKBlib.h>
 #endif
 
 #if !defined(ROBOTJS_HAS_PNG)
@@ -452,6 +454,83 @@ int CheckKeyCodes(const char* k, MMKeyCode *key)
 	return 0;
 }
 
+// Match the named keys already supported by keyToggle.
+static std::string physicalKeyAlias(const std::string& code)
+{
+	static const struct { const char* code; const char* name; } aliases[] = {
+		{ "Backspace", "backspace" },
+		{ "Delete", "delete" },
+		{ "Enter", "enter" },
+		{ "Tab", "tab" },
+		{ "Escape", "escape" },
+		{ "Space", "space" },
+		{ "ArrowUp", "up" },
+		{ "ArrowDown", "down" },
+		{ "ArrowLeft", "left" },
+		{ "ArrowRight", "right" },
+		{ "Home", "home" },
+		{ "End", "end" },
+		{ "PageUp", "pageup" },
+		{ "PageDown", "pagedown" },
+		{ "ControlLeft", "control" },
+		{ "ControlRight", "right_control" },
+		{ "ShiftLeft", "shift" },
+		{ "ShiftRight", "right_shift" },
+		{ "AltLeft", "alt" },
+		{ "AltRight", "right_alt" },
+		{ "MetaLeft", "command" },
+		{ "MetaRight", "command" },
+		{ "CapsLock", "capslock" },
+		{ "Insert", "insert" },
+		{ "PrintScreen", "printscreen" },
+		{ "ContextMenu", "menu" },
+		{ "NumLock", "numpad_lock" },
+		{ "NumpadAdd", "numpad_+" },
+		{ "NumpadSubtract", "numpad_-" },
+		{ "NumpadMultiply", "numpad_*" },
+		{ "NumpadDivide", "numpad_/" },
+		{ "NumpadDecimal", "numpad_." },
+		{ "NumpadEnter", "enter" },
+	};
+	for (const auto& alias : aliases)
+	{
+		if (code == alias.code) return alias.name;
+	}
+
+	if (code.size() == 7 && code.compare(0, 6, "Numpad") == 0 && code[6] >= '0' && code[6] <= '9')
+	{
+		return "numpad_" + code.substr(6);
+	}
+	if (code.size() > 1 && code.size() <= 3 && code[0] == 'F')
+	{
+		return "f" + code.substr(1);
+	}
+	return code;
+}
+
+#if defined(USE_X11)
+static KeyCode physicalX11KeyCode(Display* display, const char* name)
+{
+	XkbDescPtr keyboard = XkbGetMap(display, XkbKeyTypesMask, XkbUseCoreKbd);
+	if (!keyboard) return 0;
+
+	KeyCode code = 0;
+	if (XkbGetNames(display, XkbKeyNamesMask, keyboard) == Success && keyboard->names && keyboard->names->keys)
+	{
+		for (int i = keyboard->min_key_code; i <= keyboard->max_key_code; ++i)
+		{
+			if (strncmp(keyboard->names->keys[i].name, name, XkbKeyNameLength) == 0)
+			{
+				code = i;
+				break;
+			}
+		}
+	}
+	XkbFreeKeyboard(keyboard, XkbAllComponentsMask, True);
+	return code;
+}
+#endif
+
 int CheckKeyFlags(const char* f, MMKeyFlags* flags)
 {
 	if (!flags) return -1;
@@ -484,12 +563,13 @@ int CheckKeyFlags(const char* f, MMKeyFlags* flags)
 	return 0;
 }
 
-int GetFlagsFromString(Napi::Value value, MMKeyFlags* flags) {
+int GetFlagsFromString(Napi::Value value, MMKeyFlags* flags, bool physical) {
 	std::string fstr = value.ToString().Utf8Value();
+	if (physical) fstr = physicalKeyAlias(fstr);
 	return CheckKeyFlags(fstr.c_str(), flags);
 }
 
-int GetFlagsFromValue(Napi::Value value, MMKeyFlags* flags) {
+int GetFlagsFromValue(Napi::Value value, MMKeyFlags* flags, bool physical = false) {
 	if (!flags) return -1;
 
 	//Optionally allow an array of flag strings to be passed.
@@ -503,7 +583,7 @@ int GetFlagsFromValue(Napi::Value value, MMKeyFlags* flags) {
                 if (!v.IsString()) return -2;
 
                 MMKeyFlags f = MOD_NONE;
-                const int rv = GetFlagsFromString(v, &f);
+                const int rv = GetFlagsFromString(v, &f, physical);
                 if (rv) return rv;
 
                 *flags = (MMKeyFlags)(*flags | f);
@@ -513,7 +593,7 @@ int GetFlagsFromValue(Napi::Value value, MMKeyFlags* flags) {
 	}
 
 	//If it's not an array, it should be a single string value.
-	return GetFlagsFromString(value, flags);
+	return GetFlagsFromString(value, flags, physical);
 }
 
 Napi::Value keyTapWrapper(const Napi::CallbackInfo& info)
@@ -649,6 +729,68 @@ return env.Null();
 	}
 
 	return Napi::Number::New(env, 1);
+}
+
+Napi::Value keyTogglePhysicalWrapper(const Napi::CallbackInfo& info)
+{
+	Napi::Env env = info.Env();
+	if (info.Length() < 2 || info.Length() > 3 || !info[0].IsString() || !info[1].IsString())
+	{
+		Napi::TypeError::New(env, "Expected a physical key code, key state and optional modifiers").ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+
+	const std::string state = info[1].As<Napi::String>().Utf8Value();
+	if (state != "down" && state != "up")
+	{
+		Napi::TypeError::New(env, "Invalid key state").ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+
+	MMKeyFlags flags = MOD_NONE;
+	if (info.Length() == 3 && !info[2].IsUndefined() &&
+	    ((!info[2].IsString() && !info[2].IsArray()) || GetFlagsFromValue(info[2], &flags, true) != 0))
+	{
+		Napi::TypeError::New(env, "Invalid key modifier").ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+
+	const std::string code = info[0].As<Napi::String>().Utf8Value();
+	const bool down = state == "down";
+	for (const auto& key : physicalPrintableKeys)
+	{
+		if (code != key.code && !(code.size() == 1 && code[0] == key.legacy)) continue;
+
+#if defined(IS_WINDOWS)
+		toggleWindowsScanCode(key.native, down, flags);
+#elif defined(IS_MACOSX)
+		toggleKeyCode(key.native, down, flags);
+#elif defined(USE_X11)
+		Display* display = XGetMainDisplay();
+		const KeyCode nativeCode = display ? physicalX11KeyCode(display, key.native) : 0;
+		if (!nativeCode) return Napi::Boolean::New(env, false);
+		toggleX11KeyCode(display, nativeCode, down, flags);
+#endif
+		microsleep(keyboardDelay);
+		return Napi::Boolean::New(env, true);
+	}
+
+	MMKeyCode namedKey;
+	const std::string name = physicalKeyAlias(code);
+	if (name.size() <= 1 || name.find('\0') != std::string::npos || CheckKeyCodes(name.c_str(), &namedKey) != 0)
+	{
+		return Napi::Boolean::New(env, false);
+	}
+#if defined(USE_X11)
+	Display* display = XGetMainDisplay();
+	const KeyCode nativeCode = display ? XKeysymToKeycode(display, namedKey) : 0;
+	if (!nativeCode) return Napi::Boolean::New(env, false);
+	toggleX11KeyCode(display, nativeCode, down, flags);
+#else
+	toggleKeyCode(namedKey, down, flags);
+#endif
+	microsleep(keyboardDelay);
+	return Napi::Boolean::New(env, true);
 }
 
 #if defined(IS_WINDOWS) || defined(IS_MACOSX)
@@ -1878,6 +2020,9 @@ Napi::Object InitAll(Napi::Env env, Napi::Object exports)
 
 	exports.Set(Napi::String::New(env, "keyToggle"),
 				Napi::Function::New(env, keyToggleWrapper));
+
+	exports.Set(Napi::String::New(env, "keyTogglePhysical"),
+					Napi::Function::New(env, keyTogglePhysicalWrapper));
 
 #if defined(IS_WINDOWS) || defined(IS_MACOSX)
 	exports.Set(Napi::String::New(env, "keyToggleByCode"),

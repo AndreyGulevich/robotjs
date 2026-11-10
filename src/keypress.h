@@ -57,6 +57,9 @@ extern "C"
 #if defined(IS_WINDOWS)
 /* Send win32 key event for given key. */
 void win32KeyEvent(int key, MMKeyFlags flags);
+void toggleWindowsScanCode(int scan, bool down, MMKeyFlags flags);
+#elif defined(USE_X11)
+void toggleX11KeyCode(Display *display, KeyCode code, bool down, MMKeyFlags flags);
 #endif
 
 /* Toggles the given key down or up. */

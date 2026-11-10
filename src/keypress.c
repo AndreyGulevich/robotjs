@@ -15,10 +15,7 @@
 #endif
 
 /* Convenience wrappers around ugly APIs. */
-#if defined(IS_WINDOWS)
-	#define WIN32_KEY_EVENT_WAIT(key, flags) \
-		(win32KeyEvent(key, flags))
-#elif defined(USE_X11)
+#if defined(USE_X11)
 	#define X_KEY_EVENT(display, key, is_press) \
 		(XTestFakeKeyEvent(display, \
 		                   XKeysymToKeycode(display, key), \
@@ -70,6 +67,20 @@ static void postMacKeyEvent(MMKeyCode code, const bool down, CGEventFlags flags)
 #endif
 
 #if defined(IS_WINDOWS)
+static void win32ScanCodeEvent(int scan, MMKeyFlags flags)
+{
+	flags |= KEYEVENTF_SCANCODE;
+
+	INPUT keyboardInput;
+	keyboardInput.type = INPUT_KEYBOARD;
+	keyboardInput.ki.wVk = 0;
+	keyboardInput.ki.wScan = scan;
+	keyboardInput.ki.dwFlags = flags;
+	keyboardInput.ki.time = 0;
+	keyboardInput.ki.dwExtraInfo = 0;
+	SendInput(1, &keyboardInput, sizeof(keyboardInput));
+}
+
 void win32KeyEvent(int key, MMKeyFlags flags)
 {
 	int scan = MapVirtualKey(key & 0xff, MAPVK_VK_TO_VSC);
@@ -115,16 +126,24 @@ void win32KeyEvent(int key, MMKeyFlags flags)
 		}
 	}
 
-	flags |= KEYEVENTF_SCANCODE;
+	win32ScanCodeEvent(scan, flags);
+}
 
-	INPUT keyboardInput;
-	keyboardInput.type = INPUT_KEYBOARD;
-	keyboardInput.ki.wVk = 0;
-	keyboardInput.ki.wScan = scan;
-	keyboardInput.ki.dwFlags = flags;
-	keyboardInput.ki.time = 0;
-	keyboardInput.ki.dwExtraInfo = 0;
-	SendInput(1, &keyboardInput, sizeof(keyboardInput));
+static void toggleWindowsKey(int key, bool down, MMKeyFlags flags, void (*sendKey)(int, MMKeyFlags))
+{
+	const DWORD eventFlags = down ? 0 : KEYEVENTF_KEYUP;
+
+	if (!down) sendKey(key, eventFlags);
+	if (flags & MOD_META) win32KeyEvent(K_META, eventFlags);
+	if (flags & MOD_ALT) win32KeyEvent(K_ALT, eventFlags);
+	if (flags & MOD_CONTROL) win32KeyEvent(K_CONTROL, eventFlags);
+	if (flags & MOD_SHIFT) win32KeyEvent(K_SHIFT, eventFlags);
+	if (down) sendKey(key, eventFlags);
+}
+
+void toggleWindowsScanCode(int scan, bool down, MMKeyFlags flags)
+{
+	toggleWindowsKey(scan, down, flags, win32ScanCodeEvent);
 }
 #endif
 
@@ -190,28 +209,16 @@ void toggleKeyCode(MMKeyCode code, const bool down, MMKeyFlags flags)
 		}
 	}
 #elif defined(IS_WINDOWS)
-	const DWORD dwFlags = down ? 0 : KEYEVENTF_KEYUP;
-
-	if (down) {
-		/* Parse modifier keys. */
-		if (flags & MOD_META) WIN32_KEY_EVENT_WAIT(K_META, dwFlags);
-		if (flags & MOD_ALT) WIN32_KEY_EVENT_WAIT(K_ALT, dwFlags);
-		if (flags & MOD_CONTROL) WIN32_KEY_EVENT_WAIT(K_CONTROL, dwFlags);
-		if (flags & MOD_SHIFT) WIN32_KEY_EVENT_WAIT(K_SHIFT, dwFlags);
-
-		WIN32_KEY_EVENT_WAIT(code, dwFlags);
-	} else {
-		/* Reverse order for key up */
-		WIN32_KEY_EVENT_WAIT(code, dwFlags);
-
-		/* Parse modifier keys. */
-		if (flags & MOD_META) win32KeyEvent(K_META, dwFlags);
-		if (flags & MOD_ALT) win32KeyEvent(K_ALT, dwFlags);
-		if (flags & MOD_CONTROL) win32KeyEvent(K_CONTROL, dwFlags);
-		if (flags & MOD_SHIFT) win32KeyEvent(K_SHIFT, dwFlags);
-	}
+	toggleWindowsKey(code, down, flags, win32KeyEvent);
 #elif defined(USE_X11)
 	Display *display = XGetMainDisplay();
+	toggleX11KeyCode(display, XKeysymToKeycode(display, code), down, flags);
+#endif
+}
+
+#if defined(USE_X11)
+void toggleX11KeyCode(Display *display, KeyCode code, bool down, MMKeyFlags flags)
+{
 	const Bool is_press = down ? True : False; /* Just to be safe. */
 
 	if (down) {
@@ -222,10 +229,12 @@ void toggleKeyCode(MMKeyCode code, const bool down, MMKeyFlags flags)
 		if (flags & MOD_SHIFT) X_KEY_EVENT_WAIT(display, K_SHIFT, is_press);
 		if (flags & MOD_ALTGR) X_KEY_EVENT_WAIT(display, XK_ISO_Level3_Shift, is_press);
 
-		X_KEY_EVENT_WAIT(display, code, is_press);
+		XTestFakeKeyEvent(display, code, is_press, CurrentTime);
+		XFlush(display);
 	} else {
 		/* Reverse order for key up */
-		X_KEY_EVENT_WAIT(display, code, is_press);
+		XTestFakeKeyEvent(display, code, is_press, CurrentTime);
+		XFlush(display);
 
 		/* Parse modifier keys. */
 		if (flags & MOD_ALTGR) X_KEY_EVENT(display, XK_ISO_Level3_Shift, is_press);
@@ -234,8 +243,8 @@ void toggleKeyCode(MMKeyCode code, const bool down, MMKeyFlags flags)
 		if (flags & MOD_CONTROL) X_KEY_EVENT(display, K_CONTROL, is_press);
 		if (flags & MOD_SHIFT) X_KEY_EVENT(display, K_SHIFT, is_press);
 	}
-#endif
 }
+#endif
 
 void tapKeyCode(MMKeyCode code, MMKeyFlags flags)
 {

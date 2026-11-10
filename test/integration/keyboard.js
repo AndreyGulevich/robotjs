@@ -107,6 +107,26 @@ describe('Integration/Keyboard', () => {
 		robot.typeString(initial);
 	});
 
+	it('selects all with a physical key code and modifier', done => {
+
+		const initial = 'initial content';
+		const replacement = 'replacement content';
+		expectNextTypedText(initial, done, () => {
+			expectNextTypedText(replacement, done);
+			const modifier = process.platform === 'darwin' ? 'MetaLeft' : 'ControlLeft';
+			expect(robot.keyTogglePhysical('KeyA', 'down', modifier)).toBe(true);
+			expect(robot.keyTogglePhysical('KeyA', 'up', modifier)).toBe(true);
+			// Pace the replacement so a busy runner does not drop queued text
+			// events while processing the shortcut.
+			robot.typeStringDelayed(replacement, 600);
+		});
+
+		const input_1 = elements.input_1;
+		robot.moveMouse(input_1.x, input_1.y);
+		robot.mouseClick();
+		robot.typeString(initial);
+	});
+
 	macOSIt('types a non-ASCII character with unicodeTap on macOS', done => {
 
 		const marker = 'x';

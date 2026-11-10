@@ -81,6 +81,9 @@ export function setKeyboardDelay(ms: number) : void
 export function keyTap(key: string, modifier?: string | string[]) : void
 export function keyToggle(key: string, down: string, modifier?: string | string[]) : void
 
+/** Toggle a KeyboardEvent.code or a legacy key name. Returns false for unavailable keys. */
+export function keyTogglePhysical(code: string, state: 'down' | 'up', modifiers?: string | string[]): boolean
+
 /** Toggle a native virtual key on Windows or a hardware key code on macOS. */
 export const keyToggleByCode: ((code: number, pressed: boolean, modifiers?: string | string[]) => void) | undefined
 export function unicodeTap(value: number) : void

@@ -69,7 +69,7 @@ jobs:
       - name: Test prebuild on Node.js 24
         env:
           PREBUILDS_ONLY: "1"
-        run: npx jasmine test/image.js
+        run: npx jasmine test/image.js test/key-toggle-physical.js
 
       - name: Set up Node.js 25
         uses: actions/setup-node@v6
@@ -165,7 +165,7 @@ jobs:
       - name: Test prebuild on Node.js 24
         env:
           PREBUILDS_ONLY: "1"
-        run: npx jasmine test/image.js
+        run: npx jasmine test/image.js test/key-toggle-physical.js
 
       - name: Set up Node.js 25
         uses: actions/setup-node@v6
