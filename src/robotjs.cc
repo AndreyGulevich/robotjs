@@ -651,6 +651,44 @@ return env.Null();
 	return Napi::Number::New(env, 1);
 }
 
+#if defined(IS_WINDOWS) || defined(IS_MACOSX)
+Napi::Value keyToggleByCodeWrapper(const Napi::CallbackInfo& info)
+{
+	Napi::Env env = info.Env();
+	if (info.Length() < 2 || info.Length() > 3 || !info[0].IsNumber() || !info[1].IsBoolean())
+	{
+		Napi::TypeError::New(env, "Expected a native key code, a pressed flag and optional modifiers").ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+
+#if defined(IS_WINDOWS)
+	const int minCode = 1;
+	const int maxCode = 254;
+#else
+	const int minCode = 0;
+	const int maxCode = 127;
+#endif
+	const double code = info[0].As<Napi::Number>().DoubleValue();
+	if (!(code >= minCode && code <= maxCode) || std::floor(code) != code)
+	{
+		Napi::RangeError::New(env, "Invalid native key code").ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+
+	MMKeyFlags flags = MOD_NONE;
+	if (info.Length() == 3 && !info[2].IsUndefined() &&
+	    ((!info[2].IsString() && !info[2].IsArray()) || GetFlagsFromValue(info[2], &flags) != 0))
+	{
+		Napi::TypeError::New(env, "Invalid key modifier").ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+
+	toggleKeyCode(static_cast<MMKeyCode>(code), info[1].As<Napi::Boolean>().Value(), flags);
+	microsleep(keyboardDelay);
+	return env.Undefined();
+}
+#endif
+
 Napi::Value unicodeTapWrapper(const Napi::CallbackInfo& info)
 {
 	Napi::Env env = info.Env();
@@ -1840,6 +1878,11 @@ Napi::Object InitAll(Napi::Env env, Napi::Object exports)
 
 	exports.Set(Napi::String::New(env, "keyToggle"),
 				Napi::Function::New(env, keyToggleWrapper));
+
+#if defined(IS_WINDOWS) || defined(IS_MACOSX)
+	exports.Set(Napi::String::New(env, "keyToggleByCode"),
+					Napi::Function::New(env, keyToggleByCodeWrapper));
+#endif
 
 	exports.Set(Napi::String::New(env, "unicodeTap"),
 				Napi::Function::New(env, unicodeTapWrapper));
