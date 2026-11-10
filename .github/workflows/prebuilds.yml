@@ -43,7 +43,7 @@ jobs:
       - name: Install build dependencies
         run: |
           apt-get update
-          apt-get install -y curl xz-utils pkg-config python3 make g++ zlib1g-dev libx11-dev libxtst-dev xvfb xauth x11-xkb-utils
+          apt-get install -y curl xz-utils pkg-config python3 make g++ zlib1g-dev libx11-dev libxtst-dev
 
       - name: Build static libpng
         shell: bash
@@ -69,17 +69,8 @@ jobs:
       - name: Test prebuild on Node.js 24
         env:
           PREBUILDS_ONLY: "1"
+          LD_BIND_NOW: "1"
         run: npx jasmine test/image.js test/key-toggle-physical.js
-
-      - name: Toggle a physical key with a Russian-only XKB layout
-        env:
-          PREBUILDS_ONLY: "1"
-        run: |
-          xvfb-run --auto-servernum --server-args="-noreset" sh -ec '
-            setxkbmap -layout ru
-            setxkbmap -query | grep -E "^layout:[[:space:]]*ru$"
-            ROBOTJS_TEST_X11=1 npx jasmine test/key-toggle-physical.js
-          '
 
       - name: Set up Node.js 25
         uses: actions/setup-node@v6

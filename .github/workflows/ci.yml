@@ -87,7 +87,8 @@ jobs:
             pkg-config \
             openbox \
             xauth \
-            xvfb
+            xvfb \
+            x11-xkb-utils
 
       - name: Install macOS image dependencies
         if: runner.os == 'macOS'
@@ -108,6 +109,15 @@ jobs:
       - name: Run tests on macOS
         if: runner.os == 'macOS'
         run: npm test
+
+      - name: Toggle a physical key with a Russian-only XKB layout
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run --auto-servernum --server-args="-noreset" sh -ec '
+            setxkbmap -layout ru
+            setxkbmap -query | grep -E "^layout:[[:space:]]*ru$"
+            ROBOTJS_TEST_X11=1 npx jasmine test/key-toggle-physical.js
+          '
 
       - name: Run tests on Linux desktop session
         if: runner.os == 'Linux'
