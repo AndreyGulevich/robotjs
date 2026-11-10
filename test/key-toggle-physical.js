@@ -15,4 +15,11 @@ describe('Toggle by physical key', function () {
       robot.keyTogglePhysical('KeyA', 'down', ['invalid-modifier']);
     }).toThrowError(TypeError, /modifier/);
   });
+
+  if (process.env.ROBOTJS_TEST_X11 === '1') {
+    it('toggles the A position with a non-Latin XKB layout', function () {
+      expect(robot.keyTogglePhysical('KeyA', 'down')).toBe(true);
+      expect(robot.keyTogglePhysical('KeyA', 'up')).toBe(true);
+    });
+  }
 });

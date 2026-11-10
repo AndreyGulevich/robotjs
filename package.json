@@ -1,6 +1,6 @@
 {
   "name": "robotjs",
-  "version": "0.9.1-vinteo.2",
+  "version": "0.9.1-vinteo.3",
   "description": "Node.js Desktop Automation.",
   "main": "index.js",
   "typings": "index.d.ts",
